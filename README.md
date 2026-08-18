@@ -1,7 +1,6 @@
 # OpenPlayer Web UI デモ
 
-DMXショープレーヤー **OpenPlayer**（M5Stack CoreS3 + DMX Base）の操作用 Web UI を、
-実機なしで触れるようにしたデモです。
+照明コントローラ **OpenPlayer** の操作用 Web UI を、実機なしで触れるようにしたデモです。
 
 **→ https://at-miyahara.github.io/openplayer-webui-demo/**（閲覧には合言葉が必要）
 
