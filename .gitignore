@@ -1,0 +1,12 @@
+# 実機から取った生スナップショット。SSID・IP がそのまま入っているので公開リポジトリには置かない
+# （build_demo.py が生成時に差し替える）
+tools/fixtures/
+
+# 暗号化前の平文デモ。これを公開すると index.html の暗号化が無意味になる
+build/
+
+# 合言葉
+tools/passphrase.txt
+
+# 伏せ字の対応表。置換元が実機のSSID/IPそのものなので公開しない
+tools/scrub.local.json

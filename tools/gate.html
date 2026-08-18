@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ja">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="robots" content="noindex, nofollow">
+  <title>新コントローラー WebUIデモ</title>
+  <style>
+    /* 入口ページは本体UIのCSSごと暗号文の中なので、ここだけは自前で色を持つ。
+       トークンは :root に全部置き、ダークは media query で上書きするだけにする。 */
+    :root {
+      --bg: #f4f6f9;
+      --surface: #ffffff;
+      --fg: #1b2128;
+      --muted: #5b6573;
+      --border: #d8dee6;
+      --accent: #0f8f68;
+      --primary-bg: #087454;
+      --primary-hover: #065f46;
+      --primary-fg: #ffffff;
+      --danger: #c33a32;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1116;
+        --surface: #161b22;
+        --fg: #e8eef6;
+        --muted: #8a93a3;
+        --border: #2b333d;
+        --accent: #36d39e;
+        --primary-bg: #1f9c74;
+        --primary-hover: #26b184;
+        --primary-fg: #04120d;
+        --danger: #f08a82;
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: var(--bg);
+      color: var(--fg);
+      font: 400 15px/1.7 system-ui, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+    }
+
+    .card {
+      width: min(100%, 26rem);
+      padding: 30px 28px 26px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, .12);
+    }
+
+    h1 { margin: 0 0 6px; font-size: 19px; line-height: 1.5; }
+    .sub { margin: 0 0 22px; color: var(--muted); font-size: 14px; }
+    label { display: block; margin-bottom: 7px; font-size: 13px; font-weight: 600; }
+
+    input {
+      width: 100%;
+      padding: 11px 13px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--fg);
+      font: inherit;
+    }
+
+    input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+    button {
+      width: 100%;
+      margin-top: 16px;
+      padding: 11px;
+      border: 0;
+      border-radius: 8px;
+      background: var(--primary-bg);
+      color: var(--primary-fg);
+      font: 600 15px/1 system-ui, -apple-system, sans-serif;
+      cursor: pointer;
+    }
+
+    button:hover:not(:disabled) { background: var(--primary-hover); }
+    button:disabled { opacity: .6; cursor: default; }
+    button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+    .msg { min-height: 1.5em; margin-top: 12px; font-size: 13px; color: var(--danger); }
+  </style>
+</head>
+
+<body>
+  <main class="card">
+    <h1>新コントローラー WebUIデモ</h1>
+    <p class="sub">閲覧には合言葉が必要です。</p>
+    <form id="f">
+      <label for="p">合言葉</label>
+      <input id="p" type="password" autocomplete="current-password" autofocus required>
+      <button id="b" type="submit">開く</button>
+      <p class="msg" id="m" role="status" aria-live="polite"></p>
+    </form>
+  </main>
+
+  <script>
+    (function () {
+      var P = { salt: '__SALT__', iv: '__IV__', iter: __ITER__, ct: '__PAYLOAD__' };
+      var f = document.getElementById('f'), inp = document.getElementById('p'),
+        btn = document.getElementById('b'), msg = document.getElementById('m');
+
+      function bytes(b64) {
+        var s = atob(b64), a = new Uint8Array(s.length);
+        for (var i = 0; i < s.length; i++) a[i] = s.charCodeAt(i);
+        return a;
+      }
+
+      // 復号したHTMLで今の文書を丸ごと置き換える。document.write でないと
+      // 中のscriptが実行されない（innerHTML だと素通しで何も動かない）。
+      function render(html) {
+        document.open();
+        document.write(html);
+        document.close();
+      }
+
+      async function unlock(pass) {
+        var enc = new TextEncoder();
+        var km = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+        var key = await crypto.subtle.deriveKey(
+          { name: 'PBKDF2', salt: bytes(P.salt), iterations: P.iter, hash: 'SHA-256' },
+          km, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+        // 合言葉が違えば GCM の認証で例外になる＝ここで弾かれる
+        var packed = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes(P.iv) }, key, bytes(P.ct));
+        var stream = new Blob([packed]).stream().pipeThrough(new DecompressionStream('gzip'));
+        return await new Response(stream).text();
+      }
+
+      async function attempt(pass, fromStore) {
+        btn.disabled = true; msg.textContent = ''; btn.textContent = '確認中…';
+        try {
+          var html = await unlock(pass);
+          try { sessionStorage.setItem('opdemo.k', pass); } catch (_) { }
+          render(html);
+        } catch (e) {
+          try { sessionStorage.removeItem('opdemo.k'); } catch (_) { }
+          btn.disabled = false; btn.textContent = '開く';
+          if (!fromStore) { msg.textContent = '合言葉が違います。'; inp.select(); }
+        }
+      }
+
+      f.addEventListener('submit', function (e) {
+        e.preventDefault();
+        // IMEの変換確定Enterでフォームが飛ぶのを避ける
+        if (inp.value === '' || f.dataset.composing === '1') return;
+        attempt(inp.value, false);
+      });
+      inp.addEventListener('compositionstart', function () { f.dataset.composing = '1'; });
+      inp.addEventListener('compositionend', function () { f.dataset.composing = '0'; });
+
+      if (!(window.crypto && crypto.subtle) || typeof DecompressionStream === 'undefined') {
+        msg.textContent = 'このブラウザでは表示できません。最新のChrome / Safari / Firefox でお試しください。';
+        btn.disabled = true;
+        return;
+      }
+      // 同じタブで開き直したときは聞き直さない
+      var saved = null;
+      try { saved = sessionStorage.getItem('opdemo.k'); } catch (_) { }
+      if (saved) attempt(saved, true);
+    })();
+  </script>
+</body>
+
+</html>
